@@ -19,6 +19,8 @@ namespace Toggl.Ross.ViewControllers
     {
         private const float CellSpacing = 4f;
         private readonly TimeEntryModel model;
+        private Source source;
+        private UISearchBar searchBar;
 
         public ProjectSelectionViewController (TimeEntryModel model) : base (UITableViewStyle.Plain)
         {
@@ -33,7 +35,18 @@ namespace Toggl.Ross.ViewControllers
 
             View.Apply (Style.Screen);
             EdgesForExtendedLayout = UIRectEdge.None;
-            new Source (this).Attach ();
+            source = new Source (this);
+            source.Attach ();
+
+            searchBar = new UISearchBar ();
+            var newFrame = new RectangleF (new PointF (), searchBar.SystemLayoutSizeFittingSize (UIView.UILayoutFittingCompressedSize));
+            searchBar.Frame = newFrame;
+            searchBar.Placeholder = "ProjectSearch".Tr ();
+            TableView.TableHeaderView = searchBar;
+            searchBar.CancelButtonClicked += HandleSearchCancelButtonClicked;
+            searchBar.TextChanged += HandleSearchTextChanged;
+            searchBar.OnEditingStarted += HandleSearchEditingStarted;
+            searchBar.SearchButtonClicked += HandleSearchButtonClicked;
         }
 
         public override void ViewDidAppear (bool animated)
@@ -75,6 +88,54 @@ namespace Toggl.Ross.ViewControllers
             }
         }
 
+        private void HandleSearchCancelButtonClicked (object sender, EventArgs e)
+        {
+            source.Filter = null;
+            searchBar.Text = String.Empty;
+            searchBar.ResignFirstResponder ();
+            searchBar.SetShowsCancelButton (false, true);
+        }
+
+        private void HandleSearchTextChanged (object sender, UISearchBarTextChangedEventArgs e)
+        {
+            source.Filter = (object obj1) => {
+                string itemName = String.Empty;
+                if (obj1 is ProjectAndTaskView.Project) {
+                    var proj = (ProjectAndTaskView.Project)obj1;
+                    if (proj.IsNoProject || proj.IsNewProject) {
+                        return false;
+                    }
+                    if (proj.Data != null) {
+                        itemName = proj.Data.Name;
+                    }
+                }
+                if (obj1 is TaskData) {
+                    var task = (TaskData)obj1;
+                    itemName = task.Name;
+                }
+                if (!String.IsNullOrEmpty (itemName) && !itemName.ToLower ().Contains (e.SearchText.ToLower ())) {
+                    return false;
+                } else {
+                    return true;
+                }
+            };
+        }
+
+        private void HandleSearchEditingStarted (object sender, EventArgs e)
+        {
+            if (!searchBar.ShowsCancelButton) {
+                searchBar.SetShowsCancelButton (true, true);
+            }
+        }
+
+        private void HandleSearchButtonClicked (object sender, EventArgs e)
+        {
+            if (searchBar.ShowsCancelButton) {
+                searchBar.SetShowsCancelButton (false, true);
+            }
+            searchBar.ResignFirstResponder ();
+        }
+
         class Source : PlainDataViewSource<object>
         {
             private readonly static NSString WorkspaceHeaderId = new NSString ("SectionHeaderId");
@@ -82,6 +143,7 @@ namespace Toggl.Ross.ViewControllers
             private readonly static NSString TaskCellId = new NSString ("TaskCellId");
             private readonly ProjectSelectionViewController controller;
             private readonly HashSet<Guid> expandedProjects = new HashSet<Guid> ();
+            private Func<object, bool> filter;
 
             public Source (ProjectSelectionViewController controller)
                 : base (controller.TableView, new ProjectAndTaskView ())
@@ -97,6 +159,16 @@ namespace Toggl.Ross.ViewControllers
                 controller.TableView.RegisterClassForCellReuse (typeof(ProjectCell), ProjectCellId);
                 controller.TableView.RegisterClassForCellReuse (typeof(TaskCell), TaskCellId);
                 controller.TableView.SeparatorStyle = UITableViewCellSeparatorStyle.None;
+            }
+
+            public Func<object, bool> Filter { 
+                get { 
+                    return filter;
+                } 
+                set {
+                    filter = value;
+                    Update ();
+                }
             }
 
             private void ToggleTasksExpanded (Guid projectId)
@@ -217,7 +289,7 @@ namespace Toggl.Ross.ViewControllers
 
             protected override IEnumerable<object> GetRows (string section)
             {
-                foreach (var row in DataView.Data) {
+                foreach (var row in DataView.Filter(Filter)) {
                     var task = row as TaskData;
                     if (task != null && !expandedProjects.Contains (task.ProjectId))
                         continue;
