@@ -14,6 +14,7 @@ namespace Toggl.Phoebe.Data.Views
         private readonly List<ClientData> clientDataObjects = new List<ClientData> ();
         private UserData userData;
         private Subscription<DataChangeMessage> subscriptionDataChange;
+        private string filter;
 
         public ProjectAndTaskView ()
         {
@@ -29,6 +30,19 @@ namespace Toggl.Phoebe.Data.Views
                 var bus = ServiceContainer.Resolve<MessageBus> ();
                 bus.Unsubscribe (subscriptionDataChange);
                 subscriptionDataChange = null;
+            }
+        }
+
+        public string Filter {
+            get {
+                return filter;
+            }
+            set {
+                value = value != null ? value.ToLower () : null;
+                if (value != filter) {
+                    filter = value;
+                    OnUpdated ();
+                }
             }
         }
 
@@ -419,12 +433,43 @@ namespace Toggl.Phoebe.Data.Views
                     if (includeWorkspaces) {
                         yield return ws;
                     }
-
+                        
                     foreach (var proj in ws.Projects) {
-                        yield return proj;
+                        bool projectMatches = true;
+                        if (proj.IsNewProject) {
+                            yield return proj;
+                            continue;
+                        }
+                        if (!String.IsNullOrEmpty (filter)) {
+                            if (proj.IsNoProject) {
+                                continue;
+                            } else if (proj.Data != null) {
+                                var projName = proj.Data.Name ?? String.Empty;
+                                if (!projName.ToLower ().Contains (filter)) {
+                                    projectMatches = false;
+                                }
+                            }
+                        }
 
-                        foreach (var task in proj.Tasks) {
-                            yield return task;
+                        if (projectMatches) {
+                            yield return proj;
+                            foreach (var task in proj.Tasks) {
+                                yield return task;
+                            }
+                        } else {
+                            var filteredTasks = new List<TaskData> ();
+                            foreach (var task in proj.Tasks) {
+                                var taskName = task.Name ?? String.Empty;
+                                if (taskName.ToLower ().Contains (filter)) {
+                                    filteredTasks.Add (task);
+                                }
+                            }
+                            if (filteredTasks.Count > 0) {
+                                yield return proj;
+                                foreach (var task in filteredTasks) {
+                                    yield return task;
+                                }
+                            }
                         }
                     }
                 }

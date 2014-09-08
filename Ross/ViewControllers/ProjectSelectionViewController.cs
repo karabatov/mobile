@@ -43,6 +43,7 @@ namespace Toggl.Ross.ViewControllers
             searchBar.Frame = newFrame;
             searchBar.Placeholder = "ProjectSearch".Tr ();
             TableView.TableHeaderView = searchBar;
+            TableView.ContentOffset = new PointF (0, newFrame.Size.Height);
             searchBar.CancelButtonClicked += HandleSearchCancelButtonClicked;
             searchBar.TextChanged += HandleSearchTextChanged;
             searchBar.OnEditingStarted += HandleSearchEditingStarted;
@@ -98,27 +99,7 @@ namespace Toggl.Ross.ViewControllers
 
         private void HandleSearchTextChanged (object sender, UISearchBarTextChangedEventArgs e)
         {
-            source.Filter = (object obj1) => {
-                string itemName = String.Empty;
-                if (obj1 is ProjectAndTaskView.Project) {
-                    var proj = (ProjectAndTaskView.Project)obj1;
-                    if (proj.IsNoProject || proj.IsNewProject) {
-                        return false;
-                    }
-                    if (proj.Data != null) {
-                        itemName = proj.Data.Name;
-                    }
-                }
-                if (obj1 is TaskData) {
-                    var task = (TaskData)obj1;
-                    itemName = task.Name;
-                }
-                if (!String.IsNullOrEmpty (itemName) && !itemName.ToLower ().Contains (e.SearchText.ToLower ())) {
-                    return false;
-                } else {
-                    return true;
-                }
-            };
+            source.Filter = e.SearchText;
         }
 
         private void HandleSearchEditingStarted (object sender, EventArgs e)
@@ -143,12 +124,18 @@ namespace Toggl.Ross.ViewControllers
             private readonly static NSString TaskCellId = new NSString ("TaskCellId");
             private readonly ProjectSelectionViewController controller;
             private readonly HashSet<Guid> expandedProjects = new HashSet<Guid> ();
-            private Func<object, bool> filter;
+            private readonly ProjectAndTaskView projectDataView;
 
             public Source (ProjectSelectionViewController controller)
-                : base (controller.TableView, new ProjectAndTaskView ())
+                : this (controller, new ProjectAndTaskView ())
+            {
+            }
+
+            private Source (ProjectSelectionViewController controller, ProjectAndTaskView projectAndTaskView)
+                : base (controller.TableView, projectAndTaskView)
             {
                 this.controller = controller;
+                this.projectDataView = projectAndTaskView;
             }
 
             public override void Attach ()
@@ -161,13 +148,12 @@ namespace Toggl.Ross.ViewControllers
                 controller.TableView.SeparatorStyle = UITableViewCellSeparatorStyle.None;
             }
 
-            public Func<object, bool> Filter { 
+            public string Filter { 
                 get { 
-                    return filter;
+                    return projectDataView.Filter;
                 } 
                 set {
-                    filter = value;
-                    Update ();
+                    projectDataView.Filter = value;
                 }
             }
 
@@ -289,7 +275,7 @@ namespace Toggl.Ross.ViewControllers
 
             protected override IEnumerable<object> GetRows (string section)
             {
-                foreach (var row in DataView.Filter(Filter)) {
+                foreach (var row in DataView.Data) {
                     var task = row as TaskData;
                     if (task != null && !expandedProjects.Contains (task.ProjectId))
                         continue;
